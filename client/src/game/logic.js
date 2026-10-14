@@ -1,0 +1,13 @@
+import { HEIGHT, WIDTH, PIECES, makeBoard } from '../../../shared/pieces.js';
+export const cellsFor = piece => PIECES[piece.type].rotations[piece.rotation].map(([x,y])=>({x:x+piece.x,y:y+piece.y}));
+export const collides = (board,piece) => cellsFor(piece).some(({x,y})=>x<0||x>=WIDTH||y>=HEIGHT||(y>=0&&board[y][x]));
+export const move = (board,piece,dx,dy) => { const next={...piece,x:piece.x+dx,y:piece.y+dy}; return collides(board,next)?piece:next; };
+export const rotate = (board,piece,direction=1) => { const next={...piece,rotation:(piece.rotation+direction+4)%4}; return collides(board,next)?piece:next; };
+export const hardDrop = (board,piece) => { let next=piece; while(!collides(board,{...next,y:next.y+1})) next={...next,y:next.y+1}; return next; };
+export const merge = (board,piece) => { const result=board.map(row=>row.slice()); for(const {x,y} of cellsFor(piece)) if(y>=0&&y<HEIGHT&&x>=0&&x<WIDTH) result[y][x]=PIECES[piece.type].color; return result; };
+export const clearLines = board => { const remaining=board.filter(row=>!row.every(Boolean)||row.includes('garbage')); const cleared=HEIGHT-remaining.length; return {board:[...Array.from({length:cleared},()=>Array(WIDTH).fill(null)),...remaining],cleared}; };
+export const addPenalty = (board,count) => { const rows=Array.from({length:count},(_,i)=>{const row=Array(WIDTH).fill('garbage');row[(HEIGHT-count+i)%WIDTH]=null;return row;}); const shifted=[...board.slice(count),...rows]; return {board:shifted, lost:board.slice(0,count).some(row=>row.some(Boolean))}; };
+export const spectrum = board => Array.from({length:WIDTH},(_,x)=>{ const y=board.findIndex(row=>Boolean(row[x])); return y<0?0:HEIGHT-y; });
+export const ghostPiece = (board,piece) => hardDrop(board,piece);
+export const lockPiece = (board,piece) => { const merged=merge(board,piece); const cleared=clearLines(merged); return {...cleared, lost:cellsFor(piece).some(({y})=>y<0)}; };
+export const emptyBoard = () => makeBoard();
