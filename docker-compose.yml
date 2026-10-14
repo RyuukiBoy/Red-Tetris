@@ -1,0 +1,10 @@
+services:
+  red-tetris:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      MAX_ROOMS: 100
+      MAX_PLAYERS_PER_ROOM: 8
+    restart: unless-stopped
