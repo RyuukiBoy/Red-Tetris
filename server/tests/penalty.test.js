@@ -1,0 +1,2 @@
+import{it,expect}from'vitest';import{addPenalty,clearLines}from'../../client/src/game/logic.js';import{makeBoard}from'../../shared/pieces.js';
+it('keeps indestructible penalty rows incomplete and skips them during line clear',()=>{const result=addPenalty(makeBoard(),2);expect(result.board[18].filter(Boolean)).toHaveLength(9);expect(result.board[19].filter(Boolean)).toHaveLength(9);expect(clearLines(result.board).cleared).toBe(0);});
