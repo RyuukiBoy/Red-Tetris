@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Link, Route, Routes, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { EVENTS } from '../../shared/protocol.js';
 import { GAME_MODES } from '../../shared/modes.js';
@@ -82,6 +82,9 @@ function RoomPage({ room, name }) {
   const [chatText, setChatText] = useState('');
   const [reaction, setReaction] = useState(null);
   const [muted, setMuted] = useState(localStorage.getItem('rt-muted') === 'true');
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [scoreboardOpen, setScoreboardOpen] = useState(false);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
   const playSound = useSound(mutedRef);
@@ -179,7 +182,15 @@ function RoomPage({ room, name }) {
     setGame(current => current ? applyInput(current, action) : current);
   }, [playSound]);
   useKeyboard(phase === 'running' && countdown === null, bindings, act);
-  const copyInvite = async (spectator = false) => { try { const link = spectator ? `${window.location.origin}/${room}/${newPlayerName()}` : window.location.href; await navigator.clipboard?.writeText(link); } catch { setError('Copy failed. Use the address bar to share the invite.'); } };
+  const inviteUrl = useMemo(() => `${window.location.origin}/${room}/${newPlayerName()}`, [room]);
+  const copyInvite = async () => {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard unavailable');
+      await navigator.clipboard.writeText(inviteUrl);
+      setInviteCopied(true);
+      window.setTimeout(() => setInviteCopied(false), 1800);
+    } catch { setError('Copy failed. Select and copy the invite link from the invite window.'); }
+  };
   const start = () => socket?.emit(EVENTS.GAME_START, { mode: selectedMode });
   const sendChat = event => { event.preventDefault(); if (!chatText.trim()) return; socket?.emit(EVENTS.CHAT_SEND, { message: chatText }); setChatText(''); };
   const isHost = name === host;
@@ -188,14 +199,14 @@ function RoomPage({ room, name }) {
   if (phase === 'connecting') return <div className="center-screen"><div className="loader" />Connecting to the arena...</div>;
   if (phase === 'error') return <div className="center-screen"><div className="error-panel"><span className="kicker">ENTRY DENIED</span><h1>NO ROOM<br />FOR THAT.</h1><p>{error}</p><Link className="primary link-button" to="/">BACK TO BASE -&gt;</Link></div></div>;
   return <main className={`arena theme-${theme}`}>
-    <header className="arena-head"><Link to="/" className="wordmark">RED<span>TETRIS</span></Link><div className="room-pill"><span className="live"><b />{status}</span><span>ROOM / <strong>{room}</strong></span></div><div className="head-actions"><Link className="quiet" to="/leaderboard">SCORES</Link><button className="icon-button" onClick={() => { const next = !muted; setMuted(next); localStorage.setItem('rt-muted', String(next)); }} aria-label={muted ? 'Unmute sound' : 'Mute sound'}>{muted ? 'M' : 'S'}</button>{phase === 'running' && <button className="quiet" onClick={() => copyInvite(true)}>SPECTATOR LINK -&gt;</button>}<button className="quiet" onClick={copyInvite}>COPY INVITE -&gt;</button></div></header>
+    <header className="arena-head"><Link to="/" className="wordmark">RED<span>TETRIS</span></Link><div className="room-pill"><span className="live"><b />{status}</span><span>ROOM / <strong>{room}</strong></span></div><div className="head-actions"><button className="quiet" onClick={() => setScoreboardOpen(true)}>SCORES</button><button className="icon-button" onClick={() => { const next = !muted; setMuted(next); localStorage.setItem('rt-muted', String(next)); }} aria-label={muted ? 'Unmute sound' : 'Mute sound'}>{muted ? 'M' : 'S'}</button><button className="quiet" onClick={() => setInviteOpen(true)}>INVITE PLAYERS -&gt;</button></div></header>
     <div className="arena-layout"><aside className="side-panel"><div className="panel-title"><span>THE LINEUP</span><b>{players.length.toString().padStart(2, '0')}</b></div>
       <div className="player-list">{players.map((player, index) => <div className={`player-card ${player.name === name ? 'self' : ''}`} key={player.id}><span className="avatar" style={{ '--hue': index * 46 + 4 }}>{player.name.slice(0, 2).toUpperCase()}</span><span className="player-meta"><b>{player.name}{player.host ? ' [HOST]' : ''}{player.spectator ? ' [VIEWER]' : ''}</b><small>{player.spectator ? 'WATCHING' : player.alive ? 'IN THE FIGHT' : 'KNOCKED OUT'}{player.score > 0 ? ` · ${player.score.toLocaleString()}` : ''}</small></span><span className={`status-dot ${player.alive ? '' : 'dead'}`} /></div>)}</div>
       <div className="spectator-count">{spectators.length} spectator{spectators.length === 1 ? '' : 's'}</div>
       <div className="panel-bottom"><span className="kicker">ROOM LINK</span><code>{window.location.href}</code><button className="quiet" onClick={copyInvite}>COPY LINK -&gt;</button></div>
     </aside><section className="game-stage">
       {countdown !== null && <div className="countdown" aria-live="assertive">{countdown === 0 ? 'GO' : countdown}</div>}
-      {phase === 'lobby' ? <div className="lobby-card"><span className="kicker">ROOM {room.toUpperCase()} / {players.length}/8 PLAYERS</span><h1>THE ARENA<br /><em>IS YOURS.</em></h1><p>{isHost ? 'You are the host. Rally the room, then light the fuse.' : 'Waiting for the host to start the game.'}</p>{isHost ? <div className="mode-picker"><label htmlFor="mode-select">CHOOSE YOUR RULESET</label><select id="mode-select" value={selectedMode} onChange={event => setSelectedMode(event.target.value)}>{Object.values(GAME_MODES).map(item => <option key={item.id} value={item.id}>{item.label} — {item.description}</option>)}</select><button className="primary start-button" onClick={start}>START GAME <span>-&gt;</span></button></div> : <div className="waiting"><span className="pulse-dot" /> WAITING FOR {host.toUpperCase()}</div>}<div className="lobby-links"><Link to="/leaderboard">LEADERBOARD -&gt;</Link><button type="button" onClick={copyInvite}>INVITE A PLAYER -&gt;</button></div></div>
+      {phase === 'lobby' ? <div className="lobby-card"><span className="kicker">ROOM {room.toUpperCase()} / {players.length}/8 PLAYERS</span><h1>THE ARENA<br /><em>IS YOURS.</em></h1><p>{isHost ? 'You are the host. Rally the room, then light the fuse.' : 'Waiting for the host to start the game.'}</p>{isHost ? <div className="mode-picker"><label htmlFor="mode-select">CHOOSE YOUR RULESET</label><select id="mode-select" value={selectedMode} onChange={event => setSelectedMode(event.target.value)}>{Object.values(GAME_MODES).map(item => <option key={item.id} value={item.id}>{item.label} — {item.description}</option>)}</select><button className="primary start-button" onClick={start}>START GAME <span>-&gt;</span></button></div> : <div className="waiting"><span className="pulse-dot" /> WAITING FOR {host.toUpperCase()}</div>}<div className="lobby-links"><button type="button" onClick={() => setScoreboardOpen(true)}>LEADERBOARD -&gt;</button><button type="button" onClick={() => setInviteOpen(true)}>INVITE A PLAYER -&gt;</button></div></div>
         : phase === 'spectating' ? <SpectatorView room={room} mode={mode} players={displayPlayers} boards={boards} opponents={opponents} />
         : phase === 'finished' ? <div className="lobby-card results"><span className="kicker">ROUND COMPLETE / {GAME_MODES[mode]?.label}</span><h1>{winner ? winner.toUpperCase() : 'GAME'}<br /><em>{winner ? 'WINS' : 'OVER'}</em></h1><p>{winner === name ? 'The sauce is yours.' : winner ? `${winner} takes the crown.` : 'You were the last one standing.'}</p>{game && mode !== 'classic' && <p className="final-score">YOUR SCORE / {game.score.toLocaleString()} · {game.lines} LINES · LEVEL {game.level}</p>}{isHost && <button className="primary start-button" onClick={start}>PLAY AGAIN -&gt;</button>}</div>
         : <div className="play-layout"><div className="board-shell"><div className="board-top"><span>YOU / {name.toUpperCase()}</span><span className="level-tag">{GAME_MODES[mode]?.label.toUpperCase()}</span></div>{mode !== 'classic' && <div className="score-strip"><b>{(game?.score || 0).toLocaleString()}</b><span>{game?.lines || 0} LINES</span><span>LEVEL {game?.level || 1}</span><span>COMBO {Math.max(0, game?.combo || 0)}</span></div>}<Board board={game?.board || makeBoard()} piece={game?.piece} lost={game?.lost} flash={game?.flash} faded={blocksFaded} mode={mode} /><div className="board-bottom"><span>ARROWS MOVE</span><span>UP ROTATE</span><span>SPACE DROP</span></div></div>
@@ -205,6 +216,8 @@ function RoomPage({ room, name }) {
       {reaction && <div className="reaction-float" aria-live="polite">{reaction.emoji} <small>{reaction.player}</small></div>}
     </section><aside className="social-panel"><RoomChat chat={chat} chatText={chatText} setChatText={setChatText} sendChat={sendChat} /><section className="settings-card"><span className="kicker">ARCADE SETTINGS</span><label>THEME<select value={theme} onChange={event => setTheme(event.target.value)}><option value="sauce">Red Sauce</option><option value="night">Night</option><option value="mono">Mono</option></select></label><details><summary>KEY BINDINGS</summary>{Object.entries(bindings).map(([action, key]) => <label className="binding-row" key={action}>{action.toUpperCase()}<select value={key} onChange={event => setBindings(current => ({ ...current, [action]: event.target.value }))}>{BINDING_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>)}<button type="button" className="quiet" onClick={() => setBindings({ ...DEFAULT_BINDINGS })}>RESET CONTROLS</button></details><div className="reaction-row" aria-label="Send reaction">{REACTIONS.map(emoji => <button key={emoji} aria-label={`Send ${emoji} reaction`} onClick={() => socket?.emit(EVENTS.REACTION, { emoji })}>{emoji}</button>)}</div></section></aside></div>
     <footer className="arena-foot"><span>REDPELICANS SAUCE / 42 SCHOOL</span><span>{phase === 'spectating' ? 'SPECTATOR MODE' : mode !== 'classic' ? `SCORE ${(game?.score || 0).toLocaleString()}` : 'CLASSIC / SCORE OFF'} · SEED <b>{seed === null ? '--' : seed.toString(16).toUpperCase()}</b></span></footer>
+    {inviteOpen && <InviteDialog players={players} spectators={spectators} phase={phase} room={room} inviteUrl={inviteUrl} copied={inviteCopied} onCopy={copyInvite} onClose={() => setInviteOpen(false)} />}
+    {scoreboardOpen && <LeaderboardPage inRoom onReturn={() => setScoreboardOpen(false)} />}
   </main>;
 }
 
@@ -307,7 +320,11 @@ function RoomChat({ chat, chatText, setChatText, sendChat }) {
   return <section className="chat-card"><div className="panel-title"><span>ROOM CHAT</span><b>LIVE</b></div><div className="chat-log" aria-live="polite">{chat.map((item, index) => <p key={`${item.at}-${index}`}><b>{item.player}</b> {item.message}</p>)}</div><form className="chat-form" onSubmit={sendChat}><label className="visually-hidden" htmlFor="chat-input">Message</label><input id="chat-input" maxLength={160} value={chatText} onChange={event => setChatText(event.target.value)} placeholder="Send a clean message…" /><button aria-label="Send message">↗</button></form><div className="chat-hint">5 messages per 5 seconds · 160 characters</div></section>;
 }
 
-function LeaderboardPage() {
+function LeaderboardPage({ inRoom = false, onReturn }) {
+  const location = useLocation();
+  const requestedReturn = new URLSearchParams(location.search).get('returnTo');
+  const returnTo = requestedReturn && /^\/[A-Za-z0-9_-]{1,16}\/[A-Za-z0-9_-]{1,16}$/.test(requestedReturn) ? requestedReturn : '/';
+  const returnLabel = inRoom || returnTo !== '/' ? 'BACK TO ROOM -&gt;' : 'BACK TO BASE -&gt;';
   const [mode, setMode] = useState('');
   const [room, setRoom] = useState('');
   const [scores, setScores] = useState([]);
@@ -318,7 +335,16 @@ function LeaderboardPage() {
     fetch(`/api/scores?${query}`, { signal: controller.signal }).then(response => { if (!response.ok) throw new Error('Could not load scores.'); return response.json(); }).then(data => { setScores(data.scores || []); setError(''); }).catch(cause => { if (cause.name !== 'AbortError') setError(cause.message); });
     return () => controller.abort();
   }, [mode, room]);
-  return <main className="leaderboard-page"><header className="arena-head"><Link to="/" className="wordmark">RED<span>TETRIS</span></Link><Link className="quiet" to="/">BACK TO BASE -&gt;</Link></header><section className="leaderboard-content"><span className="kicker">THE SAUCE HALL OF FAME</span><h1>HIGH<br /><em>SCORES.</em></h1><div className="leaderboard-filters"><label>MODE<select value={mode} onChange={event => setMode(event.target.value)}><option value="">All modes</option>{Object.values(GAME_MODES).map(item => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label><label>ROOM<input value={room} onChange={event => setRoom(event.target.value)} maxLength={16} placeholder="Any room" /></label></div>{error && <p role="alert" className="error">{error}</p>}<div className="score-table" role="table" aria-label="Top scores"><div className="score-row score-heading" role="row"><b>RANK</b><b>PLAYER</b><b>SCORE</b><b>MODE / ROOM</b></div>{scores.length ? scores.map((score, index) => <div className="score-row" role="row" key={`${score.player}-${score.recordedAt}-${index}`}><span>#{String(index + 1).padStart(2, '0')}</span><b>{score.player}</b><strong>{score.score.toLocaleString()}</strong><span>{GAME_MODES[score.mode]?.label} / {score.room}</span></div>) : <p className="empty-scores">{error ? 'Scores are unavailable right now.' : 'No scores yet. Choose a bonus mode and set the first record.'}</p>}</div><Link className="primary link-button" to="/">BACK TO PLAY -&gt;</Link></section></main>;
+  return <main className={`leaderboard-page ${inRoom ? 'leaderboard-overlay' : ''}`}><header className="arena-head"><Link to="/" className="wordmark">RED<span>TETRIS</span></Link>{inRoom ? <button className="quiet" onClick={onReturn}>{returnLabel}</button> : <Link className="quiet" to={returnTo}>{returnLabel}</Link>}</header><section className="leaderboard-content"><span className="kicker">THE SAUCE HALL OF FAME</span><h1>HIGH<br /><em>SCORES.</em></h1><div className="leaderboard-filters"><label>MODE<select value={mode} onChange={event => setMode(event.target.value)}><option value="">All modes</option>{Object.values(GAME_MODES).map(item => <option value={item.id} key={item.id}>{item.label}</option>)}</select></label><label>ROOM<input value={room} onChange={event => setRoom(event.target.value)} maxLength={16} placeholder="Any room" /></label></div>{error && <p role="alert" className="error">{error}</p>}<div className="score-table" role="table" aria-label="Top scores"><div className="score-row score-heading" role="row"><b>RANK</b><b>PLAYER</b><b>SCORE</b><b>MODE / ROOM</b></div>{scores.length ? scores.map((score, index) => <div className="score-row" role="row" key={`${score.player}-${score.recordedAt}-${index}`}><span>#{String(index + 1).padStart(2, '0')}</span><b>{score.player}</b><strong>{score.score.toLocaleString()}</strong><span>{GAME_MODES[score.mode]?.label} / {score.room}</span></div>) : <p className="empty-scores">{error ? 'Scores are unavailable right now.' : 'No scores yet. Choose a bonus mode and set the first record.'}</p>}</div>{inRoom ? <button className="primary link-button" onClick={onReturn}>RETURN TO ROOM -&gt;</button> : <Link className="primary link-button" to={returnTo}>{returnTo === '/' ? 'BACK TO PLAY -&gt;' : 'RETURN TO ROOM -&gt;'}</Link>}</section></main>;
+}
+
+function InviteDialog({ players, spectators, phase, room, inviteUrl, copied, onCopy, onClose }) {
+  useEffect(() => {
+    const closeOnEscape = event => { if (event.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [onClose]);
+  return <div className="invite-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}><section className="invite-dialog" role="dialog" aria-modal="true" aria-labelledby="invite-title"><button className="invite-close" type="button" onClick={onClose} aria-label="Close invite window">×</button><span className="kicker">ROOM {room.toUpperCase()}</span><h2 id="invite-title">BRING YOUR<br /><em>CREW.</em></h2><p>Share the room link with a friend to invite them. While a round is running, they join as a spectator.</p><label className="invite-link-label">INVITE LINK<input readOnly value={inviteUrl} onFocus={event => event.target.select()} aria-label="Invite link" /></label><button className="primary invite-copy" type="button" onClick={onCopy}>{copied ? 'LINK COPIED ✓' : 'COPY INVITE LINK →'}</button><div className="invite-roster"><div className="invite-roster-title"><span>IN THIS ROOM</span><b>{players.length + spectators.length} HERE</b></div>{[...players, ...spectators].map((player, index) => <div className="invite-player" key={player.id || player.name}><span className="avatar" style={{ '--hue': index * 46 + 4 }}>{player.name.slice(0, 2).toUpperCase()}</span><b>{player.name}{player.host ? ' · HOST' : ''}</b><small>{player.spectator ? 'WATCHING' : 'PLAYER'}</small></div>)}{players.length + spectators.length === 0 && <p className="invite-empty">You’re the first one here. Send the link to bring someone in.</p>}</div><small className="invite-phase">{phase === 'running' ? 'THE GAME IS LIVE · NEW ARRIVALS WATCH THIS ROUND' : 'ROOM OPEN · UP TO 8 PLAYERS CAN JOIN'}</small></section></div>;
 }
 
 function readBindings() {
