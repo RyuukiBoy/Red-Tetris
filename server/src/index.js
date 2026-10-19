@@ -1,5 +1,21 @@
-import http from 'node:http';import { readFile,stat } from 'node:fs/promises';import path from 'node:path';import { fileURLToPath } from 'node:url';import { Server } from 'socket.io';import { RoomManager } from './classes/RoomManager.js';import { registerHandlers } from './sockets/handlers.js';
-const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../../');const dist=path.join(root,'dist');const port=Number(process.env.PORT||3001);
-const server=http.createServer(async(req,res)=>{try{if(req.method!=='GET'){res.writeHead(405);return res.end('Method not allowed');}const pathname=new URL(req.url,'http://localhost').pathname;if(pathname==='/healthz'){res.writeHead(200,{'content-type':'application/json'});return res.end('{"ok":true}');}let file=path.resolve(dist,`.${decodeURIComponent(pathname)}`);if(!file.startsWith(`${dist}${path.sep}`)&&file!==dist)throw new Error('bad path');try{if(!(await stat(file)).isFile())throw new Error('directory');}catch{file=path.join(dist,'index.html');}const body=await readFile(file);const ext=path.extname(file);res.writeHead(200,{'content-type':ext==='.js'?'text/javascript':ext==='.css'?'text/css':ext==='.json'?'application/json':'text/html'});res.end(body);}catch{res.writeHead(500);res.end('Server error');}});
-const io=new Server(server,{cors:{origin:true,credentials:true}});const manager=new RoomManager({maxRooms:Number(process.env.MAX_ROOMS||100),maxPlayers:Number(process.env.MAX_PLAYERS_PER_ROOM||8)});registerHandlers(io,manager);server.listen(port,()=>console.log(`Red Tetris listening on http://localhost:${port}`));
-process.on('SIGTERM',()=>io.close(()=>process.exit(0)));process.on('SIGINT',()=>io.close(()=>process.exit(0)));
+import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Server } from 'socket.io';
+import { RoomManager } from './classes/RoomManager.js';
+import { ScoreStore } from './classes/ScoreStore.js';
+import { createHttpHandler } from './http/handler.js';
+import { registerHandlers } from './sockets/handlers.js';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../');
+const dist = path.join(root, 'dist');
+const port = Number(process.env.PORT || 3001);
+const scoreStore = new ScoreStore(process.env.SCORE_FILE || path.join(root, 'data', 'scores.json'));
+const server = http.createServer(createHttpHandler({ dist, scoreStore }));
+const io = new Server(server, { cors: { origin: true, credentials: true } });
+const manager = new RoomManager({ maxRooms: Number(process.env.MAX_ROOMS || 100), maxPlayers: Number(process.env.MAX_PLAYERS_PER_ROOM || 8) });
+registerHandlers(io, manager, { scoreStore });
+server.listen(port, () => console.log(`Red Tetris listening on http://localhost:${port}`));
+const shutdown = () => io.close(() => process.exit(0));
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

@@ -6,7 +6,7 @@ export const rotate = (board,piece,direction=1) => { const next={...piece,rotati
 export const hardDrop = (board,piece) => { let next=piece; while(!collides(board,{...next,y:next.y+1})) next={...next,y:next.y+1}; return next; };
 export const merge = (board,piece) => { const result=board.map(row=>row.slice()); for(const {x,y} of cellsFor(piece)) if(y>=0&&y<HEIGHT&&x>=0&&x<WIDTH) result[y][x]=PIECES[piece.type].color; return result; };
 export const clearLines = board => { const remaining=board.filter(row=>!row.every(Boolean)||row.includes('garbage')); const cleared=HEIGHT-remaining.length; return {board:[...Array.from({length:cleared},()=>Array(WIDTH).fill(null)),...remaining],cleared}; };
-export const addPenalty = (board,count) => { const rows=Array.from({length:count},(_,i)=>{const row=Array(WIDTH).fill('garbage');row[(HEIGHT-count+i)%WIDTH]=null;return row;}); const shifted=[...board.slice(count),...rows]; return {board:shifted, lost:board.slice(0,count).some(row=>row.some(Boolean))}; };
+export const addPenalty = (board,count,holes=[]) => { const rows=Array.from({length:count},(_,i)=>{const row=Array(WIDTH).fill('garbage');row[Number.isInteger(holes[i])?Math.max(0,Math.min(WIDTH-1,holes[i])):(HEIGHT-count+i)%WIDTH]=null;return row;}); const shifted=[...board.slice(count),...rows]; return {board:shifted, lost:board.slice(0,count).some(row=>row.some(Boolean))}; };
 export const spectrum = board => Array.from({length:WIDTH},(_,x)=>{ const y=board.findIndex(row=>Boolean(row[x])); return y<0?0:HEIGHT-y; });
 export const ghostPiece = (board,piece) => hardDrop(board,piece);
 export const lockPiece = (board,piece) => { const merged=merge(board,piece); const cleared=clearLines(merged); return {...cleared, lost:cellsFor(piece).some(({y})=>y<0)}; };

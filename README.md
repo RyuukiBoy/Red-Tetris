@@ -4,7 +4,7 @@ Red Tetris is a real-time multiplayer Tetris game made for a 42 School project s
 
 ![Screenshot placeholder: Red Tetris home screen and multiplayer board]
 
-**Mandatory features:** seven tetrominoes, solo and room play, host start and migration, identical seeded pieces, live opponent spectrums, penalties, and a winner screen. **Bonus features:** scoring, stored leaderboards, alternate modes, spectators, chat, hold, and theme switching are not part of this mandatory build.
+**Mandatory features:** seven tetrominoes, solo and room play, host start and migration, identical seeded pieces, live opponent spectrums, penalties, and a winner screen. **Bonus features:** four selectable rulesets, score progression, a saved leaderboard, hold, shared 7-bag pieces, spectators, filtered chat, reactions, editable controls, and three themes.
 
 ## Prerequisites
 
@@ -17,8 +17,8 @@ Red Tetris is a real-time multiplayer Tetris game made for a 42 School project s
 Clone the repository from your own Git remote (replace `OWNER` with the GitHub or Git host account that contains it):
 
 ```sh
-git clone https://github.com/OWNER/red-tetris.git
-cd red-tetris
+git clone https://github.com/RyuukiBoy/Red-Tetris.git
+cd Red-Tetris
 cp .env.example .env
 pnpm install
 ```
@@ -73,7 +73,7 @@ The first player in a room is its host and can start or restart. Players cannot 
 | Down | Soft drop one row |
 | Space | Hard drop |
 
-The board is 10 columns by 20 rows. Clearing one row sends no penalty. Clearing two, three, or four rows sends one, two, or three indestructible rows to each living rival. A player loses if a piece cannot spawn or a penalty pushes blocks above the field. The last living player wins; a solo room ends when its player loses.
+The board is 10 columns by 20 rows. Clearing one row sends no penalty. Clearing two, three, or four rows sends one, two, or three indestructible rows to each living rival. A player loses if a piece cannot spawn or a penalty pushes blocks above the field. The last living player wins; a solo room ends when its player loses. In a bonus mode, press **C** to hold the active piece once per lock. The host can choose Classic, Gravity+, Ghost, or Hot Sauce before starting a round.
 
 ## Environment variables
 
@@ -82,6 +82,7 @@ The board is 10 columns by 20 rows. Clearing one row sends no penalty. Clearing 
 | `PORT` | HTTP and Socket.IO port | `3001` |
 | `MAX_ROOMS` | Maximum concurrent rooms | `100` |
 | `MAX_PLAYERS_PER_ROOM` | Maximum players in one room | `8` |
+| `SCORE_FILE` | JSON file used for saved scores | `./data/scores.json` |
 
 `.env` is ignored by Git. `.env.example` contains only non-secret defaults; no secrets or tokens are committed.
 
@@ -103,7 +104,7 @@ scripts/                Development launcher and forbidden-pattern check
 
 The server owns rooms, players, host state, round state, piece distribution, penalties, player elimination, and winner selection. Its state moves through `lobby`, `running`, and `finished`. Player and room state is in memory; restarting the server clears it.
 
-The server creates a seed for each game and uses the same deterministic generator to build the piece list. Each player has an independent index into that list, so timing differences do not change the sequence. The client requests small batches as its queue gets low.
+The server creates a seed for each game and uses a seeded 7-bag randomizer to build the piece list. Each player has an independent index into that list, so timing differences do not change the sequence. The client requests small batches as its queue gets low. Spectators can join a running room and receive board, spectrum, score, chat, and reaction updates without affecting host or winner rules.
 
 The client renders the board and applies pure movement, rotation, collision, locking, and line-clear functions locally for immediate feedback. It sends validated line counts and column heights to the server. The server sends `cleared - 1` penalty rows to each living opponent and relays each player's 10-column spectrum to the rest of the room. Penalty rows have a deterministic hole and cannot be cleared.
 
@@ -114,22 +115,31 @@ The payload examples below describe the fields used by this build. The server ig
 | Direction | Event | Payload | When sent / errors |
 | --- | --- | --- | --- |
 | Client → server | `room:join` | `{ room, player }` | On connection. Invalid names, duplicate names, full rooms, and started rooms return `room:error`. |
-| Client → server | `game:start` | none | Host starts or restarts a round. Non-host or invalid-state requests return `room:error`. |
+| Client → server | `game:start` | `{ mode? }` | Host starts or restarts a round. Mode defaults to `classic`; non-host or invalid-mode requests return `room:error`. |
 | Client → server | `piece:request` | `{ from }` | Client asks for a batch beginning at a non-negative piece index. |
 | Client → server | `game:lines` | `{ cleared }` | After clearing 1–4 rows. Server sends `game:penalty` to rivals for `cleared - 1`. |
 | Client → server | `game:spectrum` | `{ columns: number[10] }` | Sends integer column heights from 0 to 20. Invalid arrays are ignored. |
 | Client → server | `game:over` | none | Reports that the local player lost. Server announces elimination and a winner when applicable. |
 | Client → server | `room:leave` | none | Leaves the room; disconnect also performs cleanup. |
-| Server → client | `room:joined` | `{ players, host, you, state }` | Confirms a successful join. |
-| Server → client | `room:update` | `{ room, host, state, players }` | Lobby/player state changes. |
+| Server → client | `room:joined` | `{ players, spectators, host, you, state, mode, spectator }` | Confirms a player or spectator join. |
+| Server → client | `room:update` | `{ room, host, state, mode, players, spectators }` | Lobby/player state changes. |
 | Server → client | `room:error` | `{ code, message }` | Friendly join or host-action error. |
-| Server → client | `game:started` | `{ seed, firstPieces, players }` | Round starts. |
+| Server → client | `game:started` | `{ seed, mode, firstPieces, players }` | Round starts. |
 | Server → client | `piece:batch` | `{ index, pieces }` | Replies to a valid piece request. |
-| Server → client | `game:penalty` | `{ lines }` | Opponent sends two or more rows. |
+| Server → client | `game:penalty` | `{ lines, holes? }` | Opponent sends two or more rows. Hot Sauce includes randomized hole columns. |
 | Server → client | `opponent:spectrum` | `{ player, columns }` | Opponent spectrum changes. |
 | Server → client | `player:lost` | `{ player }` | A player is eliminated. |
 | Server → client | `game:finished` | `{ winner }` | Round ends; winner is a name or `null` for solo loss. |
 | Server → client | `host:changed` | `{ player }` | Host leaves and another player takes over. |
+| Client → server | `game:score` | `{ score, lines, level }` | Publishes bonus-mode stats for the room. Invalid or decreasing values are ignored. |
+| Client → server | `game:board` | `{ board: string|null[20][10] }` | Sends a validated board snapshot for spectator viewing. |
+| Client → server | `chat:send` | `{ message }` | Sends up to five sanitized messages per five seconds; maximum 160 characters. |
+| Client → server | `player:reaction` | `{ emoji }` | Sends a whitelisted emoji reaction; rate-limited. |
+| Server → client | `player:score` | `{ player, score, lines, level }` | Rival bonus-mode stats update. |
+| Server → client | `player:board` | `{ player, board }` | A live board snapshot for room members and spectators. |
+| Server → client | `spectator:state` | `{ mode, boards }` | Initial live-game data for a newly joined spectator. |
+| Server → client | `chat:message` | `{ player, message, at }` | Sanitized room message. |
+| Server → client | `player:reaction` | `{ player, emoji, at }` | Room reaction from a player or spectator. |
 
 ## Subject compliance checklist
 
@@ -159,11 +169,23 @@ pnpm lint
 pnpm build
 ```
 
-The coverage report is written to `coverage/index.html`. The gate instruments the pure game rules and server classes; Socket.IO protocol behavior and React home/board/routing behavior are also tested. Latest run: **92.9% statements, 98.11% functions, 100% lines, and 84.28% branches**, with 23 tests passing. The tests cover movement, collision, rotation, locking, line clears, penalty rows, spectrum, host migration, duplicate names, room limits, seeded piece identity, room isolation, penalties, and winner selection.
+The coverage report is written to `coverage/index.html`. The gate instruments the pure game rules and server classes; Socket.IO protocol behavior, HTTP routes, score persistence, and React home/board/routing behavior are also tested. Latest run: **91.59% statements, 97.01% functions, 100% lines, and 85.07% branches**, with 32 tests passing. The tests cover game rules, seeded 7-bag identity, room/spectator rules, chat and garbage validation, score storage, API filtering/rate limits, room isolation, penalties, and winner selection.
 
 ## Bonus features
 
-The mandatory build does not include scorekeeping, saved leaderboards, alternate modes, hold, spectators, chat, reactions, custom bindings, theme switching, or persisted scores. There are no flags or endpoints for these yet. They should be added as optional modules after the mandatory rules remain stable. Docker and CI configuration are included as development/deployment support, not gameplay bonuses.
+Choose a ruleset in the host lobby. **Classic** is the default and keeps mandatory constant gravity, ordinary penalties, and no score display. Bonus modes enable scoring and saved records:
+
+- **Gravity+:** gravity accelerates each time the player clears ten rows.
+- **Ghost:** locked blocks fade after five seconds; the active and landing-preview pieces remain visible.
+- **Hot Sauce:** line attacks send twice as many garbage rows with randomized holes.
+- **Scoring:** line clears award 100/300/500/800 base points times level. Soft drops award one point per row; hard drops award two. Combos and back-to-back tetrises add bonuses. Level increases every ten cleared rows.
+- **Hold and 7-bag:** press C (or customize the key) to swap the current piece once per lock. The server produces a seeded bag containing one of every piece and shares that sequence with all room players.
+- **Spectators:** use the room invite while a round is running. Spectators see live boards, spectrums, scores, chat, and reactions; they do not count as players or affect the winner.
+- **Chat and reactions:** chat is limited to 160 characters and five messages per five seconds; common profanity is masked and markup is rendered as plain text. Six preset emoji reactions are available.
+- **Controls and themes:** edit keyboard bindings in Arcade Settings. Red Sauce, Night, and Mono themes are saved in local storage; Mono uses block patterns to help distinguish pieces.
+- **Leaderboard:** open **High Scores** or `/leaderboard`. Filter the top 20 by mode and room. The read-only endpoint is `GET /api/scores?mode=gravity&room=sauce`; supported mode ids are `classic`, `gravity`, `ghost`, and `hotSauce`. Requests are limited to 30 per minute per client address. Score records are written atomically to `SCORE_FILE`; remove that JSON file to reset the board.
+
+Scores are in-memory for the active round and saved to the JSON leaderboard when the round ends. The client reports score totals to the server, which checks their shape and monotonic progression before storing the result.
 
 ## Troubleshooting / FAQ
 
@@ -172,7 +194,7 @@ The mandatory build does not include scorekeeping, saved leaderboards, alternate
 - **Room already started:** wait for the host to restart the next round, then join its new lobby.
 - **Name already taken:** choose another name in that room. Names are limited to letters, digits, `_`, and `-`.
 - **Blank page after refresh:** production routes use the server SPA fallback; run `pnpm build` before `pnpm start` and open the server URL.
-- **Reset the leaderboard:** no leaderboard is implemented in this build, so there is no score file to reset.
+- **Reset the leaderboard:** stop the server and delete the file configured by `SCORE_FILE` (default `data/scores.json`). The server recreates it after the next completed bonus round.
 - **Docker does not start:** confirm Docker Desktop is running, then retry `docker compose up --build`.
 
 ## Tech stack and credits

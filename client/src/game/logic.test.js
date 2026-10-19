@@ -12,6 +12,7 @@ describe('pure board rules',()=>{
  it('drops to the last valid position',()=>expect(hardDrop(makeBoard(),makePiece('O')).y).toBe(18));
  it('locks pieces and reports a clear',()=>{const b=makeBoard();b[19].fill('red');b[19][4]=null;b[19][5]=null;const r=lockPiece(b,makePiece('O',3,18));expect(r.cleared).toBeGreaterThan(0);expect(r.board).toHaveLength(20)});
  it('adds garbage, detects overflow, and handles zero lines',()=>{const b=makeBoard();b[0][0]='red';const r=addPenalty(b,1);expect(r.lost).toBe(true);expect(r.board[19].filter(Boolean)).toHaveLength(9);expect(addPenalty(makeBoard(),0).board).toEqual(makeBoard());expect(emptyBoard()).toEqual(makeBoard())});
+ it('uses server-provided holes for hot sauce garbage',()=>{const r=addPenalty(makeBoard(),2,[0,9]);expect(r.board[18][0]).toBe(null);expect(r.board[18][9]).toBe('garbage');expect(r.board[19][9]).toBe(null);expect(r.board[19][0]).toBe('garbage')});
 });
 
 
