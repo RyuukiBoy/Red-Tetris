@@ -31,7 +31,7 @@ The clone command becomes usable after the project is pushed to that remote. For
 pnpm dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173). Vite serves the React page; the Node server listens on port 3001 for Socket.IO and health checks.
+Open `http://localhost:5173`. Vite serves the React page and proxies Socket.IO, WebSocket upgrades, and API calls to the Node server. Both services bind to all network interfaces by default.
 
 ### Production
 
@@ -40,7 +40,7 @@ pnpm build
 pnpm start
 ```
 
-Open [http://localhost:3001](http://localhost:3001). Vite writes the client entry bundle to `dist/bundle.js`; the Node server serves it and falls back to `index.html` for application routes.
+Open `http://localhost:3001`. The Node server serves `dist/bundle.js` and falls back to `index.html` for application routes. Set `HOST=0.0.0.0` and choose `PORT` in `.env` to control its network binding and port.
 
 ### Docker
 
@@ -48,7 +48,7 @@ Open [http://localhost:3001](http://localhost:3001). Vite writes the client entr
 docker compose up --build
 ```
 
-Open [http://localhost:3001](http://localhost:3001). Docker was not available in the implementation environment, so this path still needs a Docker-enabled run before release.
+Open `http://localhost:3001`. Compose publishes the configured `PORT` on all host interfaces and sets the container's `HOST` to `0.0.0.0`.
 
 ### Makefile shortcuts
 
@@ -62,7 +62,15 @@ Enter a room and player name on the home page, or open a direct link in this for
 http://<host>:<port>/<room>/<player_name>
 ```
 
-For local multiplayer, open two browser tabs and join the same room with different names, for example `/sauce/alpha` and `/sauce/beta`. On another device on the same network, use the host computer's LAN IP in place of `localhost`; allow inbound TCP port 3001 in the host firewall.
+### Playing from another device
+
+1. Start Red Tetris with `pnpm dev`, `pnpm start`, or Docker Compose. In development, Vite is the address other devices open (default port `5173`). In production and Docker, use the Node server port (default `3001`).
+2. Find the host computer's local network IP. On Linux, run `ip a`, `ifconfig`, or `hostname -I`; on macOS use `ifconfig`; on Windows use `ipconfig`. Use the IPv4 address for the active Wi-Fi or Ethernet network.
+3. Share a room URL using that IP and the port for your run, for example `http://192.168.1.42:5173/room1/bob` in development or `http://192.168.1.42:3001/room1/bob` in production. The room and player name are the last two parts of the URL.
+4. Both devices must be connected to the same local network. If a custom hostname or a separate frontend origin is used, add its full origin to `CLIENT_ORIGIN` (comma-separated when there is more than one).
+5. If the host firewall blocks incoming connections, open the port used in the shared URL. For example, run `sudo ufw allow 5173/tcp` for the default dev server or `sudo ufw allow 3001/tcp` for production/Docker.
+
+For **same machine** multiplayer, open two browser tabs at `http://localhost:5173/room1/alice` and `http://localhost:5173/room1/bob` during development. With production or Docker, replace `5173` with the configured server port.
 
 The first player in a room is its host and can start or restart. Players cannot enter a running or finished round. If a host leaves, the earliest remaining player becomes host. Empty rooms are removed. Rooms run independently.
 
@@ -79,7 +87,10 @@ The board is 10 columns by 20 rows. Clearing one row sends no penalty. Clearing 
 
 | Variable | Meaning | Default |
 | --- | --- | --- |
+| `HOST` | Network interface for the Node HTTP and Socket.IO server | `0.0.0.0` |
 | `PORT` | HTTP and Socket.IO port | `3001` |
+| `VITE_PORT` | Vite dev server port | `5173` |
+| `CLIENT_ORIGIN` | Additional allowed browser origin(s), comma-separated | `http://localhost:5173` |
 | `MAX_ROOMS` | Maximum concurrent rooms | `100` |
 | `MAX_PLAYERS_PER_ROOM` | Maximum players in one room | `8` |
 | `SCORE_FILE` | JSON file used for saved scores | `./data/scores.json` |
@@ -169,7 +180,7 @@ pnpm lint
 pnpm build
 ```
 
-The coverage report is written to `coverage/index.html`. The gate instruments the pure game rules and server classes; Socket.IO protocol behavior, HTTP routes, score persistence, and React home/board/routing behavior are also tested. Latest run: **91.59% statements, 97.01% functions, 100% lines, and 85.07% branches**, with 32 tests passing. The tests cover game rules, seeded 7-bag identity, room/spectator rules, chat and garbage validation, score storage, API filtering/rate limits, room isolation, penalties, and winner selection.
+The coverage report is written to `coverage/index.html`. The gate instruments the pure game rules and server classes; Socket.IO protocol behavior, LAN binding, allowed-origin checks, HTTP routes, score persistence, and React home/board/routing behavior are also tested. See the latest test and coverage output for current counts and percentages.
 
 ## Bonus features
 
@@ -189,7 +200,10 @@ Scores are in-memory for the active round and saved to the JSON leaderboard when
 
 ## Troubleshooting / FAQ
 
-- **Port already in use:** set `PORT` in `.env` to a free port. In development, Vite's socket proxy targets port 3001; update `vite.config.js` if you change that server port.
+- **Cannot connect from another device:** confirm both devices are on the same network, share the host's current LAN IP (not `localhost`), and use the dev port (`VITE_PORT`, default `5173`) or server port (`PORT`, default `3001`) for the mode you started.
+- **Works on localhost only:** confirm the Node server uses `HOST=0.0.0.0`, restart after changing `.env`, and check that the dev server is reachable at `http://<host-ip>:5173` or production at `http://<host-ip>:3001`. The Vite proxy reads `PORT` and `HOST` from `.env`.
+- **Blocked by firewall:** allow inbound TCP on the port in the shared URL. For example, use `sudo ufw allow 5173/tcp` for development or `sudo ufw allow 3001/tcp` for production.
+- **Port already in use:** set `PORT` or `VITE_PORT` in `.env` to a free port and restart both services.
 - **WebSocket blocked by a proxy:** allow WebSocket upgrades for `/socket.io`; the client also tries Socket.IO polling transport.
 - **Room already started:** wait for the host to restart the next round, then join its new lobby.
 - **Name already taken:** choose another name in that room. Names are limited to letters, digits, `_`, and `-`.
